@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>scribble.url — handwritten notes in a link</title>
+<style>
+  :root{
+    --bg:#f6f3ec;
+    --paper:#fffdf6;
+    --ink:#1a1a1a;
+    --line:#dcd6c4;
+    --accent:#c44a2b;
+    --muted:#6b6457;
+    --shadow:0 1px 0 rgba(0,0,0,.04), 0 12px 32px -16px rgba(0,0,0,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  body{display:flex;flex-direction:column;touch-action:none}
+
+  header{
+    display:flex;align-items:center;gap:12px;padding:10px 14px;
+    background:linear-gradient(180deg,#fffdf6, #f6f3ec);
+    border-bottom:1px solid var(--line);
+    flex-wrap:wrap;
+  }
+  .brand{font-weight:700;letter-spacing:-.01em;font-size:15px;display:flex;align-items:center;gap:8px}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(196,74,43,.18)}
+  .brand small{font-weight:500;color:var(--muted);font-size:12px}
+
+  .group{display:flex;align-items:center;gap:6px;padding:4px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+  .swatch{
+    width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+    transition:transform .12s ease, border-color .12s ease;
+  }
+  .swatch:hover{transform:scale(1.08)}
+  .swatch.active{border-color:#fff;outline:2px solid var(--ink);outline-offset:1px}
+
+  .size{
+    display:flex;align-items:center;justify-content:center;
+    width:30px;height:30px;border-radius:8px;cursor:pointer;color:var(--ink);
+    transition:background .12s ease;
+  }
+  .size:hover{background:#f1ecdd}
+  .size.active{background:var(--ink);color:#fff}
+  .size .dot{border-radius:50%;background:currentColor}
+
+  button.tool{
+    appearance:none;border:1px solid var(--line);background:#fff;
+    padding:6px 10px;border-radius:8px;font:inherit;font-size:13px;color:var(--ink);
+    cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    box-shadow:var(--shadow);transition:transform .08s ease, background .12s ease;
+  }
+  button.tool:hover{background:#fffdf6}
+  button.tool:active{transform:translateY(1px)}
+  button.tool.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.tool.primary:hover{background:#000}
+  button.tool[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.tool svg{width:14px;height:14px}
+
+  .stats{
+    margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)
+  }
+  .urlbar{
+    flex:1;min-width:160px;font:inherit;font-size:12px;color:var(--muted);
+    background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .urlbar b{color:var(--ink)}
+  .warn{color:var(--accent);font-weight:600}
+
+  main{flex:1;position:relative;background:var(--paper);overflow:hidden}
+  .paper{
+    position:absolute;inset:0;
+    background-image:
+      linear-gradient(#e8e0c8 1px, transparent 1px);
+    background-size:100% 28px;
+    background-position:0 27px;
+    opacity:.55;
+    pointer-events:none;
+  }
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+  canvas.erasing{cursor:cell}
+
+  .toast{
+    position:absolute;left:50%;bottom:24px;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;
+    opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;
+    z-index:5;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+  .help{
+    position:absolute;right:14px;bottom:14px;max-width:280px;font-size:12px;color:var(--muted);
+    background:#fffdf6cc;backdrop-filter:blur(6px);
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    box-shadow:var(--shadow);line-height:1.45;
+    pointer-events:none; /* never block the canvas */
+    transition:opacity .25s ease;
+  }
+  .help.hide{opacity:0}
+  .help kbd{font:inherit;font-size:11px;background:#fff;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px}
+  .help b{color:var(--ink)}
+
+  @media (max-width:640px){
+    .help{display:none}
+    .stats{width:100%;order:99}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>scribble.url <small>handwritten notes, stored in the link</small></div>
+
+  <div class="group" role="group" aria-label="color">
+    <div class="swatch" data-color="#1a1a1a" style="background:#1a1a1a"></div>
+    <div class="swatch" data-color="#c44a2b" style="background:#c44a2b"></div>
+    <div class="swatch" data-color="#1e6fbf" style="background:#1e6fbf"></div>
+    <div class="swatch" data-color="#2e8b57" style="background:#2e8b57"></div>
+    <div class="swatch" data-color="#b8860b" style="background:#b8860b"></div>
+  </div>
+
+  <div class="group" role="group" aria-label="size">
+    <div class="size" data-size="2"><span class="dot" style="width:4px;height:4px"></span></div>
+    <div class="size" data-size="4"><span class="dot" style="width:7px;height:7px"></span></div>
+    <div class="size" data-size="8"><span class="dot" style="width:11px;height:11px"></span></div>
+    <div class="size" data-size="14"><span class="dot" style="width:16px;height:16px"></span></div>
+  </div>
+
+  <button class="tool" id="eraser" aria-pressed="false" title="Eraser (E)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6 6 12-12-6-6L3 17z"/><path d="M9 23l5-5"/></svg>
+    Eraser
+  </button>
+  <button class="tool" id="undo" title="Undo (Ctrl+Z)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+    Undo
+  </button>
+  <button class="tool" id="clear" title="Clear all">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+    Clear
+  </button>
+  <button class="tool primary" id="copy" title="Copy link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 1 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 1 0 7 7l1-1"/></svg>
+    Copy link
+  </button>
+
+  <div class="stats">
+    <span id="strokeCount">0 strokes</span>
+    <span class="urlbar" id="urlbar"><b>URL:</b> <span id="urlLen">0</span> chars</span>
+  </div>
+</header>
+
+<main>
+  <div class="paper"></div>
+  <canvas id="cv"></canvas>
+  <div class="help" id="help">
+    <b>Pen only.</b> Touch a Windows stylus to the screen to draw — mouse and finger are ignored.
+    Each stroke is encoded straight into the URL after <code>#</code>; share the link to share the note.<br>
+    <b>Keys:</b> <kbd>E</kbd> eraser, <kbd>Ctrl+Z</kbd> undo.
+  </div>
+  <div class="toast" id="toast">Copied!</div>
+</main>
+
+<script>
+/* ---------- compact binary stroke codec ---------- */
+/*
+  Format (all little-endian):
+    magic: 'S','1'             2 bytes
+    w (u16), h (u16)           4 bytes   (reference canvas, for relative coords)
+    nStrokes (varuint)
+    for each stroke:
+      color (u24 RGB)          3 bytes
+      sizeIdx (u8)             1 byte    (0..255, mapped to actual size)
+      nPoints (varuint)
+      x0 (u16), y0 (u16), p0 (u8)
+      for each subsequent point:
+        dx (zigzag varint)
+        dy (zigzag varint)
+        dp (i8)
+  Coordinates are quantized to the canvas reference size at draw time.
+  Then deflated (raw DEFLATE) and base64url'd into location.hash.
+*/
+
+function ZigEnc(n){ return (n << 1) ^ (n >> 31); }
+function ZigDec(n){ return (n >>> 1) ^ -(n & 1); }
+
+class BitWriter{
+  constructor(){ this.bytes = []; }
+  u8(v){ this.bytes.push(v & 0xff); }
+  u16(v){ this.bytes.push(v & 0xff, (v>>>8) & 0xff); }
+  u24(v){ this.bytes.push(v & 0xff, (v>>>8) & 0xff, (v>>>16) & 0xff); }
+  i8(v){ this.bytes.push((v < 0 ? v + 256 : v) & 0xff); }
+  varu(n){
+    n = n >>> 0;
+    while(n >= 0x80){ this.bytes.push((n & 0x7f) | 0x80); n >>>= 7; }
+    this.bytes.push(n & 0x7f);
+  }
+  vari(n){ this.varu(ZigEnc(n|0)); }
+  toUint8(){ return new Uint8Array(this.bytes); }
+}
+
+class BitReader{
+  constructor(buf){ this.buf = buf; this.p = 0; }
+  u8(){ return this.buf[this.p++]; }
+  u16(){ const v = this.buf[this.p] | (this.buf[this.p+1]<<8); this.p+=2; return v; }
+  u24(){ const v = this.buf[this.p] | (this.buf[this.p+1]<<8) | (this.buf[this.p+2]<<16); this.p+=3; return v; }
+  i8(){ const v = this.buf[this.p++]; return v > 127 ? v - 256 : v; }
+  varu(){
+    let r = 0, shift = 0, b;
+    do{ b = this.buf[this.p++]; r |= (b & 0x7f) << shift; shift += 7; } while(b & 0x80);
+    return r >>> 0;
+  }
+  vari(){ return ZigDec(this.varu()); }
+  eof(){ return this.p >= this.buf.length; }
+}
+
+/* ---------- base64url helpers ---------- */
+function b64uEncode(bytes){
+  let s = '';
+  for(let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
+}
+function b64uDecode(str){
+  str = str.replaceAll('-','+').replaceAll('_','/');
+  while(str.length % 4) str += '=';
+  const bin = atob(str);
+  const out = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* ---------- compression: brotli or deflate-raw, whichever wins ---------- */
+async function streamThrough(transform, bytes){
+  const w = transform.writable.getWriter(); w.write(bytes); w.close();
+  const chunks = []; const r = transform.readable.getReader();
+  for(;;){ const {value,done} = await r.read(); if(done) break; chunks.push(value); }
+  let len = 0; for(const c of chunks) len += c.length;
+  const out = new Uint8Array(len); let o = 0;
+  for(const c of chunks){ out.set(c, o); o += c.length; }
+  return out;
+}
+
+async function compressBest(bytes){
+  const tries = [];
+  try { tries.push({ type: 'D', data: await streamThrough(new CompressionStream('deflate-raw'), bytes) }); } catch {}
+  try { tries.push({ type: 'B', data: await streamThrough(new CompressionStream('br'), bytes) }); } catch {}
+  if(tries.length === 0) throw new Error('no compression available');
+  tries.sort((a, b) => a.data.length - b.data.length);
+  return tries[0];
+}
+
+async function decompress(type, bytes){
+  const algo = type === 'B' ? 'br' : 'deflate-raw';
+  return streamThrough(new DecompressionStream(algo), bytes);
+}
+
+/* ---------- encode/decode strokes ---------- */
+const REF_W = 4096;
+const REF_H = 4096;
+const SIZE_TABLE = [2,4,8,14,22,32];
+
+function sizeToIdx(size){
+  let best = 0, bestd = Infinity;
+  for(let i=0;i<SIZE_TABLE.length;i++){
+    const d = Math.abs(SIZE_TABLE[i]-size);
+    if(d < bestd){ bestd = d; best = i; }
+  }
+  return best;
+}
+
+/* Ramer-Douglas-Peucker — drop points within epsilon of the chord */
+function rdpSimplify(pts, eps){
+  const n = pts.length;
+  if(n < 3) return pts.slice();
+  const keep = new Uint8Array(n);
+  keep[0] = 1; keep[n-1] = 1;
+  const stack = [[0, n-1]];
+  const eps2 = eps * eps;
+  while(stack.length){
+    const [s,e] = stack.pop();
+    const ax = pts[s].x, ay = pts[s].y;
+    const bx = pts[e].x, by = pts[e].y;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx*dx + dy*dy;
+    let maxD2 = 0, maxI = -1;
+    for(let i = s+1; i < e; i++){
+      const px = pts[i].x, py = pts[i].y;
+      let d2;
+      if(len2 === 0){
+        const ex = px - ax, ey = py - ay;
+        d2 = ex*ex + ey*ey;
+      } else {
+        let t = ((px - ax)*dx + (py - ay)*dy) / len2;
+        if(t < 0) t = 0; else if(t > 1) t = 1;
+        const cx = ax + t*dx, cy = ay + t*dy;
+        const ex = px - cx, ey = py - cy;
+        d2 = ex*ex + ey*ey;
+      }
+      if(d2 > maxD2){ maxD2 = d2; maxI = i; }
+    }
+    if(maxD2 > eps2 && maxI !== -1){
+      keep[maxI] = 1;
+      stack.push([s, maxI]);
+      stack.push([maxI, e]);
+    }
+  }
+  const out = [];
+  for(let i = 0; i < n; i++) if(keep[i]) out.push(pts[i]);
+  return out;
+}
+
+function strokePressureVaries(s){
+  // For cubic strokes: check startP against each cubic's end pressure.
+  const samples = [s.startP];
+  for(const c of s.cubics) samples.push(c.p);
+  if(samples.length < 2) return false;
+  let lo = 1, hi = 0;
+  for(const v of samples){ const w = v ?? 0.5; if(w < lo) lo = w; if(w > hi) hi = w; }
+  return (hi - lo) > 0.08;
+}
+
+/* ---------- Schneider FitCurve (Graphics Gems I, 1990) ----------
+   Fits a polyline to a chain of cubic Béziers. Endpoints of consecutive
+   cubics coincide, so a stroke of N cubics needs 3N+1 control points. */
+const FIT_MAX_ITER = 4;
+
+const v2sub = (a,b) => ({x:a.x-b.x, y:a.y-b.y});
+const v2add = (a,b) => ({x:a.x+b.x, y:a.y+b.y});
+const v2mul = (a,s) => ({x:a.x*s,   y:a.y*s});
+const v2dot = (a,b) => a.x*b.x + a.y*b.y;
+const v2len2 = a => a.x*a.x + a.y*a.y;
+const v2len  = a => Math.sqrt(v2len2(a));
+const v2norm = a => { const L = v2len(a); return L > 1e-12 ? {x:a.x/L, y:a.y/L} : {x:0,y:0}; };
+const v2neg  = a => ({x:-a.x, y:-a.y});
+
+const B0 = u => { const t=1-u; return t*t*t; };
+const B1 = u => { const t=1-u; return 3*t*t*u; };
+const B2 = u => { const t=1-u; return 3*t*u*u; };
+const B3 = u =>                u*u*u;
+
+function bezAt(P0,P1,P2,P3,u){
+  return { x: P0.x*B0(u)+P1.x*B1(u)+P2.x*B2(u)+P3.x*B3(u),
+           y: P0.y*B0(u)+P1.y*B1(u)+P2.y*B2(u)+P3.y*B3(u) };
+}
+function bezDerivAt(P0,P1,P2,P3,u){
+  const Q0=v2mul(v2sub(P1,P0),3), Q1=v2mul(v2sub(P2,P1),3), Q2=v2mul(v2sub(P3,P2),3);
+  const t=1-u;
+  return { x: Q0.x*t*t + Q1.x*2*t*u + Q2.x*u*u,
+           y: Q0.y*t*t + Q1.y*2*t*u + Q2.y*u*u };
+}
+function bezDeriv2At(P0,P1,P2,P3,u){
+  const R0={x:P2.x-2*P1.x+P0.x, y:P2.y-2*P1.y+P0.y};
+  const R1={x:P3.x-2*P2.x+P1.x, y:P3.y-2*P2.y+P1.y};
+  return { x: 6*((1-u)*R0.x + u*R1.x), y: 6*((1-u)*R0.y + u*R1.y) };
+}
+
+function chordParameterize(pts, first, last){
+  const n = last - first + 1;
+  const u = new Array(n);
+  u[0] = 0;
+  for(let i=1;i<n;i++) u[i] = u[i-1] + v2len(v2sub(pts[first+i], pts[first+i-1]));
+  const total = u[n-1] || 1;
+  for(let i=1;i<n;i++) u[i] /= total;
+  return u;
+}
+
+function generateBezier(pts, first, last, u, tHat1, tHat2){
+  const n = last - first + 1;
+  const P0 = pts[first], P3 = pts[last];
+  let C00=0, C01=0, C11=0, X0=0, X1=0;
+  for(let i=0;i<n;i++){
+    const ui = u[i];
+    const A0 = v2mul(tHat1, B1(ui));
+    const A1 = v2mul(tHat2, B2(ui));
+    C00 += v2dot(A0,A0);
+    C01 += v2dot(A0,A1);
+    C11 += v2dot(A1,A1);
+    const w0 = B0(ui)+B1(ui), w3 = B2(ui)+B3(ui);
+    const tmp = { x: pts[first+i].x - (P0.x*w0 + P3.x*w3),
+                  y: pts[first+i].y - (P0.y*w0 + P3.y*w3) };
+    X0 += v2dot(A0, tmp);
+    X1 += v2dot(A1, tmp);
+  }
+  const det = C00*C11 - C01*C01;
+  const segLen = v2len(v2sub(P3, P0));
+  const eps = 1e-6 * segLen;
+  let aL, aR;
+  if(Math.abs(det) < eps){
+    aL = aR = segLen / 3;
+  } else {
+    aL = (C11*X0 - C01*X1) / det;
+    aR = (C00*X1 - C01*X0) / det;
+    if(aL < eps || aR < eps) aL = aR = segLen / 3;
+  }
+  return [P0, v2add(P0, v2mul(tHat1, aL)), v2add(P3, v2mul(tHat2, aR)), P3];
+}
+
+function maxFitError(pts, first, last, bez, u){
+  let maxD2 = 0, splitIdx = ((first+last) >>> 1);
+  for(let i = first+1; i < last; i++){
+    const Q = bezAt(bez[0],bez[1],bez[2],bez[3], u[i-first]);
+    const d2 = v2len2(v2sub(Q, pts[i]));
+    if(d2 > maxD2){ maxD2 = d2; splitIdx = i; }
+  }
+  return { maxD2, splitIdx };
+}
+
+function reparameterize(pts, first, last, u, bez){
+  const n = last - first + 1;
+  const out = new Array(n);
+  for(let i=0;i<n;i++){
+    const Q  = bezAt(bez[0],bez[1],bez[2],bez[3], u[i]);
+    const Q1 = bezDerivAt(bez[0],bez[1],bez[2],bez[3], u[i]);
+    const Q2 = bezDeriv2At(bez[0],bez[1],bez[2],bez[3], u[i]);
+    const QmP = v2sub(Q, pts[first+i]);
+    const num = v2dot(QmP, Q1);
+    const den = v2dot(Q1, Q1) + v2dot(QmP, Q2);
+    out[i] = den === 0 ? u[i] : u[i] - num / den;
+  }
+  return out;
+}
+
+function centerTangent(pts, idx){
+  const V1 = v2sub(pts[idx-1], pts[idx]);
+  const V2 = v2sub(pts[idx],   pts[idx+1]);
+  return v2norm({x:(V1.x+V2.x)/2, y:(V1.y+V2.y)/2});
+}
+
+function fitCubicRec(pts, first, last, tHat1, tHat2, errSq, out){
+  if(last - first === 1){
+    const P0 = pts[first], P3 = pts[last];
+    const d = v2len(v2sub(P3, P0)) / 3;
+    out.push([P0, v2add(P0, v2mul(tHat1, d)), v2add(P3, v2mul(tHat2, d)), P3]);
+    return;
+  }
+  let u = chordParameterize(pts, first, last);
+  let bez = generateBezier(pts, first, last, u, tHat1, tHat2);
+  let { maxD2, splitIdx } = maxFitError(pts, first, last, bez, u);
+  if(maxD2 < errSq){ out.push(bez); return; }
+  if(maxD2 < errSq * 4){
+    for(let k=0;k<FIT_MAX_ITER;k++){
+      u = reparameterize(pts, first, last, u, bez);
+      bez = generateBezier(pts, first, last, u, tHat1, tHat2);
+      ({ maxD2, splitIdx } = maxFitError(pts, first, last, bez, u));
+      if(maxD2 < errSq){ out.push(bez); return; }
+    }
+  }
+  const tHatC = centerTangent(pts, splitIdx);
+  fitCubicRec(pts, first, splitIdx, tHat1, tHatC, errSq, out);
+  fitCubicRec(pts, splitIdx, last, v2neg(tHatC), tHat2, errSq, out);
+}
+
+function fitCurves(pts, errorRef){
+  if(pts.length < 2) return [];
+  if(pts.length === 2){
+    const d = v2len(v2sub(pts[1], pts[0])) / 3;
+    const tHat = v2norm(v2sub(pts[1], pts[0]));
+    return [[pts[0], v2add(pts[0], v2mul(tHat, d)), v2add(pts[1], v2mul(v2neg(tHat), d)), pts[1]]];
+  }
+  const tHat1 = v2norm(v2sub(pts[1], pts[0]));
+  const tHat2 = v2norm(v2sub(pts[pts.length-2], pts[pts.length-1]));
+  const out = [];
+  fitCubicRec(pts, 0, pts.length-1, tHat1, tHat2, errorRef*errorRef, out);
+  return out;
+}
+
+/* Convert a raw {pts: [...]} from active drawing into a cubic-stroke.
+   Pre-prune microscopic jitter with a tiny RDP, then Schneider fit. */
+const FIT_ERROR_REF = 4;          // ref units; ~1 css px on a 1000-px canvas
+function rawToCubics(rawPts){
+  if(rawPts.length === 0) return null;
+  const first = rawPts[0];
+  if(rawPts.length === 1){
+    return { startX: first.x, startY: first.y, startP: first.p ?? 0.5, cubics: [] };
+  }
+  const cleaned = rdpSimplify(rawPts, 0.8);   // strip jitter before fitting
+  const xy = cleaned.map(p => ({ x: p.x, y: p.y }));
+  const cubicsXY = fitCurves(xy, FIT_ERROR_REF);
+  // Map each cubic's endpoint back to a pressure value from the original samples.
+  // The fitter preserves endpoints exactly (first/last of cleaned), so we can
+  // look up by index.
+  let cleanedIdx = 0;
+  const cubics = [];
+  for(const bez of cubicsXY){
+    // Walk forward to find the cleaned index that matches bez[3].
+    while(cleanedIdx + 1 < cleaned.length &&
+          !(cleaned[cleanedIdx+1].x === bez[3].x && cleaned[cleanedIdx+1].y === bez[3].y)){
+      cleanedIdx++;
+    }
+    cleanedIdx = Math.min(cleanedIdx + 1, cleaned.length - 1);
+    cubics.push({
+      c1x: bez[1].x, c1y: bez[1].y,
+      c2x: bez[2].x, c2y: bez[2].y,
+      ex:  bez[3].x, ey:  bez[3].y,
+      p:   cleaned[cleanedIdx].p ?? 0.5,
+    });
+  }
+  return {
+    startX: cleaned[0].x, startY: cleaned[0].y, startP: cleaned[0].p ?? 0.5,
+    cubics,
+  };
+}
+
+/* v3 wire format: per-stroke palette+flags, cubics as deltas from prev endpoint. */
+function encodeStrokes(strokes, refW, refH){
+  const palette = [];
+  for(const s of strokes){
+    if(palette.indexOf(s.color) === -1 && palette.length < 16) palette.push(s.color);
+  }
+  const bw = new BitWriter();
+  bw.u8(0x53); bw.u8(0x33);                 // 'S','3'
+  bw.u8(0x00);                              // reserved
+  bw.u8(palette.length);
+  for(const c of palette){
+    const r = parseInt(c.slice(1,3),16);
+    const g = parseInt(c.slice(3,5),16);
+    const b = parseInt(c.slice(5,7),16);
+    bw.u24((b<<16) | (g<<8) | r);
+  }
+  bw.varu(strokes.length);
+  const clampXY = (v, lim) => Math.max(0, Math.min(lim-1, Math.round(v)));
+  const clampP  = v => Math.max(0, Math.min(255, Math.round((v ?? 0.5)*255)));
+  for(const s of strokes){
+    let colorIdx = palette.indexOf(s.color); if(colorIdx < 0) colorIdx = 0;
+    const sizeIdx = sizeToIdx(s.size) & 7;
+    const hasP = strokePressureVaries(s);
+    bw.u8((hasP?1:0) | (sizeIdx << 1) | ((colorIdx & 15) << 4));
+    bw.varu(s.cubics.length);
+    let px = clampXY(s.startX, refW), py = clampXY(s.startY, refH);
+    bw.varu(px); bw.varu(py);
+    let pp = clampP(s.startP);
+    if(hasP) bw.u8(pp);
+    for(const c of s.cubics){
+      const c1x = clampXY(c.c1x, refW), c1y = clampXY(c.c1y, refH);
+      const c2x = clampXY(c.c2x, refW), c2y = clampXY(c.c2y, refH);
+      const ex  = clampXY(c.ex,  refW), ey  = clampXY(c.ey,  refH);
+      bw.vari(c1x - px); bw.vari(c1y - py);
+      bw.vari(c2x - px); bw.vari(c2y - py);
+      bw.vari(ex  - px); bw.vari(ey  - py);
+      px = ex; py = ey;
+      if(hasP){
+        const p = clampP(c.p);
+        bw.i8(Math.max(-127, Math.min(127, p - pp)));
+        pp = p;
+      }
+    }
+  }
+  return bw.toUint8();
+}
+
+function decodeStrokes(bytes){
+  const br = new BitReader(bytes);
+  if(br.u8() !== 0x53 || br.u8() !== 0x33) throw new Error('bad magic/version');
+  br.u8(); // reserved
+  const nColors = br.u8();
+  const palette = [];
+  for(let i=0;i<nColors;i++){
+    const rgb = br.u24();
+    const r = rgb & 0xff, g = (rgb>>>8)&0xff, b = (rgb>>>16)&0xff;
+    palette.push('#' + [r,g,b].map(v=>v.toString(16).padStart(2,'0')).join(''));
+  }
+  const n = br.varu();
+  const out = [];
+  for(let i=0;i<n;i++){
+    const flags = br.u8();
+    const hasP = (flags & 1) !== 0;
+    const sizeIdx = (flags >> 1) & 7;
+    const colorIdx = (flags >> 4) & 15;
+    const color = palette[colorIdx] || '#1a1a1a';
+    const size = SIZE_TABLE[sizeIdx] ?? 4;
+    const nC = br.varu();
+    let px = br.varu(), py = br.varu();
+    let pp = hasP ? br.u8() : 128;
+    const stroke = { color, size, startX: px, startY: py, startP: pp/255, cubics: [] };
+    for(let j=0;j<nC;j++){
+      const c1x = px + br.vari(), c1y = py + br.vari();
+      const c2x = px + br.vari(), c2y = py + br.vari();
+      const ex  = px + br.vari(), ey  = py + br.vari();
+      if(hasP){ pp += br.i8(); if(pp<0) pp=0; else if(pp>255) pp=255; }
+      stroke.cubics.push({ c1x, c1y, c2x, c2y, ex, ey, p: pp/255 });
+      px = ex; py = ey;
+    }
+    out.push(stroke);
+  }
+  return { refW: REF_W, refH: REF_H, strokes: out };
+}
+
+/* ---------- canvas + drawing ---------- */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let dpr = window.devicePixelRatio || 1;
+let cssW = 0, cssH = 0;
+const PEN_ONLY = true;
+
+let strokes = [];      // committed strokes
+let current = null;    // in-progress
+let activePointer = null;
+let tool = 'pen';      // 'pen' | 'eraser'
+let color = '#1a1a1a';
+let size = 4;
+let dirty = false;
+
+function resize(){
+  dpr = window.devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  cssW = rect.width; cssH = rect.height;
+  cv.width = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  redraw();
+}
+window.addEventListener('resize', resize);
+// Observe the parent (NOT the canvas itself — mutating cv.width inside the
+// observer would feedback-loop and grow the canvas to its max size).
+new ResizeObserver(() => requestAnimationFrame(resize)).observe(document.querySelector('main'));
+
+function toRef(pt){
+  const x = Math.round(pt.x / cssW * REF_W);
+  const y = Math.round(pt.y / cssH * REF_H);
+  return {
+    x: Math.max(0, Math.min(REF_W - 1, x)),
+    y: Math.max(0, Math.min(REF_H - 1, y)),
+    p: pt.p
+  };
+}
+function fromRef(pt){
+  return { x: pt.x / REF_W * cssW, y: pt.y / REF_H * cssH, p: pt.p };
+}
+
+/* Render in-progress strokes (raw points) with midpoint-quadratic smoothing,
+   and committed strokes (cubics) with native bezierCurveTo. */
+function drawRawStroke(s){
+  if(s.pts.length === 0) return;
+  ctx.strokeStyle = s.color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const base = s.size;
+  const pts = s.pts.map(fromRef);
+  if(pts.length === 1){
+    const p = pts[0];
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, base/2 * (0.6 + 0.8 * (p.p ?? 0.5)), 0, Math.PI*2);
+    ctx.fill();
+    return;
+  }
+  if(pts.length === 2){
+    const a = pts[0], b = pts[1];
+    ctx.lineWidth = base * (0.55 + 0.9 * (((a.p ?? 0.5) + (b.p ?? 0.5)) / 2));
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    return;
+  }
+  const mid = (p,q) => ({x:(p.x+q.x)/2, y:(p.y+q.y)/2});
+  for(let i = 1; i < pts.length - 1; i++){
+    const prev = pts[i-1], curr = pts[i], next = pts[i+1];
+    const start = (i === 1) ? prev : mid(prev, curr);
+    const end   = mid(curr, next);
+    const avgP  = ((prev.p ?? 0.5) + (curr.p ?? 0.5) + (next.p ?? 0.5)) / 3;
+    ctx.lineWidth = base * (0.55 + 0.9 * avgP);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.quadraticCurveTo(curr.x, curr.y, end.x, end.y);
+    ctx.stroke();
+  }
+  const n = pts.length;
+  const lastMid = mid(pts[n-2], pts[n-1]);
+  const last    = pts[n-1];
+  const avgPLast = ((pts[n-2].p ?? 0.5) + (last.p ?? 0.5)) / 2;
+  ctx.lineWidth = base * (0.55 + 0.9 * avgPLast);
+  ctx.beginPath();
+  ctx.moveTo(lastMid.x, lastMid.y);
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+}
+
+function drawStroke(s){
+  // Committed strokes are cubics. Dots have zero cubics.
+  ctx.strokeStyle = s.color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const base = s.size;
+  const start = fromRef({x: s.startX, y: s.startY, p: s.startP});
+  if(s.cubics.length === 0){
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.arc(start.x, start.y, base/2 * (0.6 + 0.8 * (s.startP ?? 0.5)), 0, Math.PI*2);
+    ctx.fill();
+    return;
+  }
+  // Each cubic gets one stroked path with its average pressure → width.
+  // The browser rasterizes the math curve directly; no point sampling.
+  let prevP = s.startP ?? 0.5;
+  let prevX = start.x, prevY = start.y;
+  for(const c of s.cubics){
+    const c1 = fromRef({x: c.c1x, y: c.c1y});
+    const c2 = fromRef({x: c.c2x, y: c.c2y});
+    const e  = fromRef({x: c.ex,  y: c.ey});
+    const avgP = (prevP + (c.p ?? 0.5)) / 2;
+    ctx.lineWidth = base * (0.55 + 0.9 * avgP);
+    ctx.beginPath();
+    ctx.moveTo(prevX, prevY);
+    ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, e.x, e.y);
+    ctx.stroke();
+    prevP = c.p ?? prevP;
+    prevX = e.x; prevY = e.y;
+  }
+}
+
+function redraw(){
+  ctx.clearRect(0,0,cssW,cssH);
+  for(const s of strokes) drawStroke(s);
+  if(current) drawRawStroke(current);
+}
+
+/* ---------- pointer input ---------- */
+function getPoint(ev){
+  // offsetX/Y is canvas-relative and computed by the browser — avoids
+  // rect drift from scrollbars, fractional layout, or stale captures.
+  const x = (typeof ev.offsetX === 'number') ? ev.offsetX : (ev.clientX - cv.getBoundingClientRect().left);
+  const y = (typeof ev.offsetY === 'number') ? ev.offsetY : (ev.clientY - cv.getBoundingClientRect().top);
+  const pressure = (ev.pointerType === 'pen' && ev.pressure > 0) ? ev.pressure : 0.5;
+  return { x, y, p: pressure };
+}
+
+let penRejectShownAt = 0;
+function rejectIfNotPen(ev){
+  if(!PEN_ONLY) return false;
+  if(ev.pointerType === 'pen') return false;
+  ev.preventDefault();
+  if(Date.now() - penRejectShownAt > 2000){
+    penRejectShownAt = Date.now();
+    showToast('Pen only — please use a stylus');
+  }
+  return true;
+}
+
+// Hit-test a cubic stroke by sampling each cubic at a handful of t values.
+// For typical brush sizes this is plenty granular for the eraser.
+function hitTestStroke(s, x, y, r){
+  const rr = r*r;
+  const test = (rx, ry) => {
+    const p = fromRef({x: rx, y: ry});
+    const dx = p.x - x, dy = p.y - y;
+    return dx*dx + dy*dy <= rr;
+  };
+  if(test(s.startX, s.startY)) return true;
+  let prevX = s.startX, prevY = s.startY;
+  for(const c of s.cubics){
+    if(test(c.ex, c.ey)) return true;
+    // Sample interior t in {0.25, 0.5, 0.75}
+    for(const t of [0.25, 0.5, 0.75]){
+      const u = 1 - t;
+      const x_ = u*u*u*prevX + 3*u*u*t*c.c1x + 3*u*t*t*c.c2x + t*t*t*c.ex;
+      const y_ = u*u*u*prevY + 3*u*u*t*c.c1y + 3*u*t*t*c.c2y + t*t*t*c.ey;
+      if(test(x_, y_)) return true;
+    }
+    prevX = c.ex; prevY = c.ey;
+  }
+  return false;
+}
+
+cv.addEventListener('pointerdown', (ev)=>{
+  if(rejectIfNotPen(ev)) return;
+  ev.preventDefault();
+  cv.setPointerCapture(ev.pointerId);
+  activePointer = ev.pointerId;
+  const pt = getPoint(ev);
+  if(tool === 'eraser'){
+    eraseAt(pt.x, pt.y);
+    return;
+  }
+  current = { color, size, pts: [ toRef(pt) ] };
+  redraw();
+});
+
+cv.addEventListener('pointermove', (ev)=>{
+  if(ev.pointerId !== activePointer) return;
+  if(rejectIfNotPen(ev)) return;
+  ev.preventDefault();
+  // smoother strokes: include coalesced events on pen
+  const events = (ev.getCoalescedEvents && ev.getCoalescedEvents().length)
+    ? ev.getCoalescedEvents() : [ev];
+  if(tool === 'eraser'){
+    for(const e of events){ const p = getPoint(e); eraseAt(p.x, p.y); }
+    return;
+  }
+  if(!current) return;
+  for(const e of events){
+    const ref = toRef(getPoint(e));
+    const last = current.pts[current.pts.length-1];
+    if(Math.abs(ref.x - last.x) + Math.abs(ref.y - last.y) < 2) continue;
+    current.pts.push(ref);
+  }
+  redraw();
+});
+
+function endStroke(ev){
+  if(ev.pointerId !== activePointer) return;
+  try{ cv.releasePointerCapture(ev.pointerId); }catch(_){}
+  activePointer = null;
+  if(tool === 'pen' && current){
+    if(current.pts.length > 0){
+      // Schneider Bézier fit replaces raw points with a chain of cubics.
+      // Runs synchronously — typically <5 ms even for dense strokes.
+      const fitted = rawToCubics(current.pts);
+      if(fitted){
+        fitted.color = current.color;
+        fitted.size  = current.size;
+        strokes.push(fitted);
+        document.getElementById('help')?.classList.add('hide');
+      }
+    }
+    current = null;
+    redraw();
+    scheduleSave();
+  }
+}
+cv.addEventListener('pointerup', endStroke);
+cv.addEventListener('pointercancel', endStroke);
+cv.addEventListener('pointerleave', endStroke);
+
+function eraseAt(x,y){
+  const radius = Math.max(12, size*2);
+  let changed = false;
+  const kept = [];
+  for(const s of strokes){
+    if(hitTestStroke(s, x, y, radius)){ changed = true; continue; }
+    kept.push(s);
+  }
+  if(changed){ strokes = kept; redraw(); scheduleSave(); }
+}
+
+/* ---------- toolbar ---------- */
+const swatches = document.querySelectorAll('.swatch');
+const sizes = document.querySelectorAll('.size');
+const eraserBtn = document.getElementById('eraser');
+
+function setColor(c){
+  color = c;
+  if(tool === 'eraser') setTool('pen');
+  swatches.forEach(s => s.classList.toggle('active', s.dataset.color === c));
+}
+function setSize(n){
+  size = n;
+  sizes.forEach(s => s.classList.toggle('active', +s.dataset.size === n));
+}
+function setTool(t){
+  tool = t;
+  eraserBtn.setAttribute('aria-pressed', t === 'eraser');
+  cv.classList.toggle('erasing', t === 'eraser');
+}
+swatches.forEach(el => el.addEventListener('click', () => setColor(el.dataset.color)));
+sizes.forEach(el => el.addEventListener('click', () => setSize(+el.dataset.size)));
+eraserBtn.addEventListener('click', () => setTool(tool === 'eraser' ? 'pen' : 'eraser'));
+
+document.getElementById('undo').addEventListener('click', () => {
+  if(strokes.length === 0) return;
+  strokes.pop(); redraw(); scheduleSave();
+});
+document.getElementById('clear').addEventListener('click', () => {
+  if(strokes.length === 0) return;
+  if(!confirm('Clear the whole drawing?')) return;
+  strokes = []; redraw(); scheduleSave();
+});
+document.getElementById('copy').addEventListener('click', async () => {
+  await save();
+  try{
+    await navigator.clipboard.writeText(location.href);
+    showToast('Link copied — ' + location.href.length + ' chars');
+  }catch{
+    showToast('Press Ctrl+C to copy the URL');
+  }
+});
+
+window.addEventListener('keydown', (ev) => {
+  if(ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA') return;
+  if(ev.key === 'e' || ev.key === 'E'){ setTool(tool === 'eraser' ? 'pen' : 'eraser'); }
+  else if((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z'){
+    if(strokes.length === 0) return;
+    strokes.pop(); redraw(); scheduleSave(); ev.preventDefault();
+  }
+});
+
+/* ---------- save/load via URL ---------- */
+const WARN_URL_CHARS = 8000;
+
+let saveTimer = null;
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 220);
+}
+
+async function save(){
+  updateStats();
+  if(strokes.length === 0){
+    history.replaceState(null, '', location.pathname + location.search);
+    document.getElementById('urlLen').textContent = location.href.length;
+    document.getElementById('urlbar').classList.remove('warn');
+    return;
+  }
+
+  const raw  = encodeStrokes(strokes, REF_W, REF_H);
+  const comp = await compressBest(raw);
+  const hash = '#3' + comp.type + b64uEncode(comp.data);
+
+  history.replaceState(null, '', location.pathname + location.search + hash);
+
+  const urlbar = document.getElementById('urlbar');
+  const len = location.href.length;
+  document.getElementById('urlLen').textContent = len + ' chars · ' + comp.data.length + ' B ' + comp.type;
+  urlbar.classList.toggle('warn', len > WARN_URL_CHARS);
+}
+
+function updateStats(){
+  document.getElementById('strokeCount').textContent =
+    strokes.length + ' stroke' + (strokes.length === 1 ? '' : 's');
+}
+
+async function load(){
+  const h = location.hash;
+  if(!h || h.length < 3) return;
+  if(h[1] !== '3') return;                // v3 only — no point-list fallback
+  const compType = h[2];
+  if(compType !== 'B' && compType !== 'D') return;
+  try{
+    const z = b64uDecode(h.slice(3));
+    const raw = await decompress(compType, z);
+    const { strokes: s } = decodeStrokes(raw);
+    strokes = s;
+    redraw(); updateStats();
+    document.getElementById('urlLen').textContent = location.href.length;
+  }catch(e){
+    console.warn('Failed to load from URL:', e);
+  }
+}
+
+/* ---------- toast ---------- */
+const toastEl = document.getElementById('toast');
+let toastTimer;
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> toastEl.classList.remove('show'), 1600);
+}
+
+/* ---------- init ---------- */
+setColor('#1a1a1a');
+setSize(4);
+setTool('pen');
+resize();
+load();
+</script>
+</body>
+</html>
