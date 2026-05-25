@@ -149,7 +149,7 @@
 
   <div class="stats">
     <span id="strokeCount">0 strokes</span>
-    <span id="inputType" style="color:var(--muted);font-size:11px">input: —</span>
+    <span id="inputType" style="color:var(--muted);font-size:11px;font-family:ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50vw">waiting for input…</span>
     <span class="urlbar" id="urlbar"><b>URL:</b> <span id="urlLen">0</span> chars</span>
   </div>
 </header>
@@ -726,26 +726,43 @@ function getPoint(ev){
   return { x, y, p: pressure };
 }
 
-// Strict pen-only. Detected input type is surfaced in the toolbar so you can
-// see what the device actually reports — if your stylus says "touch" or
-// "mouse", the issue is at the OS/driver layer, not the app.
-let lastPointerInfo = '';
+// Strict pen-only at draw time. Diagnostic indicator below logs every
+// pointer event regardless of capture/down state, so we can see what your
+// device actually sends.
 let infoShownAt = 0;
 function rejectIfNotPen(ev){
-  const t = ev.pointerType || 'unknown';
-  if(t !== lastPointerInfo){
-    lastPointerInfo = t;
-    const el = document.getElementById('inputType');
-    if(el) el.textContent = 'input: ' + t + (ev.pressure ? ' p=' + ev.pressure.toFixed(2) : '');
-  }
   if(!PEN_ONLY) return false;
-  if(t === 'pen') return false;
+  if(ev.pointerType === 'pen') return false;
   ev.preventDefault();
   if(Date.now() - infoShownAt > 2000){
     infoShownAt = Date.now();
-    showToast('Pen only — detected ' + t);
+    showToast('Pen only — detected ' + (ev.pointerType || 'unknown'));
   }
   return true;
+}
+
+// Diagnostic: report EVERY pointer event hitting the canvas, including
+// hover-only (pointerover / pointermove with no buttons), so we can tell
+// whether the OS is delivering pen events at all.
+const POINTER_EVENT_TYPES = ['pointerover','pointerenter','pointerdown','pointermove','pointerup','pointercancel','pointerleave','pointerout','lostpointercapture','gotpointercapture'];
+const seenTypes = new Set();
+const seenEvents = new Set();
+function logPointer(ev){
+  seenTypes.add(ev.pointerType || 'unknown');
+  seenEvents.add(ev.type);
+  const el = document.getElementById('inputType');
+  if(!el) return;
+  el.textContent =
+    'evt: ' + ev.type +
+    ' · type: ' + (ev.pointerType || '?') +
+    ' · p=' + (ev.pressure || 0).toFixed(2) +
+    ' · btns=' + ev.buttons +
+    ' · all-types=' + [...seenTypes].join(',') +
+    ' · all-evts=' + [...seenEvents].join(',');
+}
+for(const t of POINTER_EVENT_TYPES){
+  // Listen on document so we see events even if the canvas is somehow bypassed.
+  document.addEventListener(t, logPointer, { passive: true, capture: true });
 }
 
 // Hit-test a cubic stroke by sampling each cubic at a handful of t values.
