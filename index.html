@@ -149,6 +149,7 @@
 
   <div class="stats">
     <span id="strokeCount">0 strokes</span>
+    <span id="inputType" style="color:var(--muted);font-size:11px">input: —</span>
     <span class="urlbar" id="urlbar"><b>URL:</b> <span id="urlLen">0</span> chars</span>
   </div>
 </header>
@@ -725,14 +726,24 @@ function getPoint(ev){
   return { x, y, p: pressure };
 }
 
-let penRejectShownAt = 0;
+// Accept pen + touch (active-area styluses on Windows hybrids often report
+// as 'touch'). Reject only 'mouse'. Toast surfaces what was detected so the
+// user can confirm what their device actually reports.
+let lastPointerInfo = '';
+let infoShownAt = 0;
 function rejectIfNotPen(ev){
+  const t = ev.pointerType || 'unknown';
+  if(t !== lastPointerInfo){
+    lastPointerInfo = t;
+    const el = document.getElementById('inputType');
+    if(el) el.textContent = 'input: ' + t + (ev.pressure ? ' p=' + ev.pressure.toFixed(2) : '');
+  }
   if(!PEN_ONLY) return false;
-  if(ev.pointerType === 'pen') return false;
+  if(t === 'pen' || t === 'touch') return false;   // mouse rejected only
   ev.preventDefault();
-  if(Date.now() - penRejectShownAt > 2000){
-    penRejectShownAt = Date.now();
-    showToast('Pen only — please use a stylus');
+  if(Date.now() - infoShownAt > 2000){
+    infoShownAt = Date.now();
+    showToast('Stylus only — got ' + t);
   }
   return true;
 }
