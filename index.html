@@ -726,9 +726,9 @@ function getPoint(ev){
   return { x, y, p: pressure };
 }
 
-// Accept pen + touch (active-area styluses on Windows hybrids often report
-// as 'touch'). Reject only 'mouse'. Toast surfaces what was detected so the
-// user can confirm what their device actually reports.
+// Strict pen-only. Detected input type is surfaced in the toolbar so you can
+// see what the device actually reports — if your stylus says "touch" or
+// "mouse", the issue is at the OS/driver layer, not the app.
 let lastPointerInfo = '';
 let infoShownAt = 0;
 function rejectIfNotPen(ev){
@@ -739,11 +739,11 @@ function rejectIfNotPen(ev){
     if(el) el.textContent = 'input: ' + t + (ev.pressure ? ' p=' + ev.pressure.toFixed(2) : '');
   }
   if(!PEN_ONLY) return false;
-  if(t === 'pen' || t === 'touch') return false;   // mouse rejected only
+  if(t === 'pen') return false;
   ev.preventDefault();
   if(Date.now() - infoShownAt > 2000){
     infoShownAt = Date.now();
-    showToast('Stylus only — got ' + t);
+    showToast('Pen only — detected ' + t);
   }
   return true;
 }
