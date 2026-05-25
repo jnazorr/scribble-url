@@ -18,8 +18,17 @@
   html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--ink);
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
     -webkit-font-smoothing:antialiased;
+    /* Strongest possible: disable every browser-level gesture on every level
+       of the tree so Windows can't eat pen-tip contact as a pan/right-click. */
+    touch-action:none;
+    -ms-touch-action:none;
+    -ms-content-zooming:none;
+    user-select:none;
+    -webkit-user-select:none;
+    overscroll-behavior:none;
   }
   body{display:flex;flex-direction:column;touch-action:none}
+  main,.paper,canvas{touch-action:none}
 
   header{
     display:flex;align-items:center;gap:12px;padding:10px 14px;
@@ -741,29 +750,33 @@ function rejectIfNotPen(ev){
   return true;
 }
 
-// Diagnostic: report EVERY pointer event hitting the canvas, including
-// hover-only (pointerover / pointermove with no buttons), so we can tell
-// whether the OS is delivering pen events at all.
-const POINTER_EVENT_TYPES = ['pointerover','pointerenter','pointerdown','pointermove','pointerup','pointercancel','pointerleave','pointerout','lostpointercapture','gotpointercapture'];
+// Diagnostic: log all pointer + touch events so we know what the OS sends.
+const ALL_EVENT_TYPES = ['pointerover','pointerenter','pointerdown','pointermove','pointerup','pointercancel','pointerleave','pointerout','lostpointercapture','gotpointercapture','touchstart','touchmove','touchend','touchcancel','mousedown','mouseup'];
 const seenTypes = new Set();
 const seenEvents = new Set();
 function logPointer(ev){
-  seenTypes.add(ev.pointerType || 'unknown');
+  if(ev.pointerType) seenTypes.add(ev.pointerType);
   seenEvents.add(ev.type);
   const el = document.getElementById('inputType');
   if(!el) return;
   el.textContent =
     'evt: ' + ev.type +
-    ' · type: ' + (ev.pointerType || '?') +
-    ' · p=' + (ev.pressure || 0).toFixed(2) +
-    ' · btns=' + ev.buttons +
-    ' · all-types=' + [...seenTypes].join(',') +
-    ' · all-evts=' + [...seenEvents].join(',');
+    (ev.pointerType ? ' · type: ' + ev.pointerType : '') +
+    (typeof ev.pressure === 'number' ? ' · p=' + ev.pressure.toFixed(2) : '') +
+    (typeof ev.buttons === 'number' ? ' · btns=' + ev.buttons : '') +
+    ' · seen=' + [...seenEvents].join(',');
 }
-for(const t of POINTER_EVENT_TYPES){
-  // Listen on document so we see events even if the canvas is somehow bypassed.
+for(const t of ALL_EVENT_TYPES){
   document.addEventListener(t, logPointer, { passive: true, capture: true });
 }
+
+// Block touch + gesture handlers from eating the pen-down. Belt-and-braces
+// alongside the CSS touch-action: none.
+for(const t of ['touchstart','touchmove','touchend','gesturestart','gesturechange','gestureend']){
+  document.addEventListener(t, e => e.preventDefault(), { passive: false, capture: true });
+}
+// Block context menu on long-press (pen)
+document.addEventListener('contextmenu', e => e.preventDefault());
 
 // Hit-test a cubic stroke by sampling each cubic at a handful of t values.
 // For typical brush sizes this is plenty granular for the eraser.
