@@ -780,12 +780,10 @@ for(const t of ALL_EVENT_TYPES){
   document.addEventListener(t, logPointer, { passive: true, capture: true });
 }
 
-// Block touch + gesture handlers from eating the pen-down. Belt-and-braces
-// alongside the CSS touch-action: none.
-for(const t of ['touchstart','touchmove','touchend','gesturestart','gesturechange','gestureend']){
-  document.addEventListener(t, e => e.preventDefault(), { passive: false, capture: true });
-}
-// Block context menu on long-press (pen)
+// (Removed touch/gesture preventDefault — calling preventDefault on
+// touchstart in the capture phase suppresses the compatibility pointerdown
+// per the W3C touch-events spec, which is exactly what was killing pen-down.
+// CSS `touch-action: none` is the correct way to disable gestures.)
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 // Hit-test a cubic stroke by sampling each cubic at a handful of t values.
